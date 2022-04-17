@@ -18,15 +18,9 @@ if not mt5.initialize():
 
 # %%
 symbol = 'WDO@N'
-'''timezone = pytz.timezone("Etc/UTC")
-dateBegin = datetime(2022, 3, 31, 9, 37, tzinfo=timezone)
-dateEnd = datetime(2022, 3, 31, 11, 40, tzinfo=timezone)'''
 
 dateBegin =  datetime(2022,3,31,0,0)
 dateEnd = datetime(2022,4,1,0,0)
-
-'''dateBegin = datetime(2022, 3, 31, 0, 0)
-dateEnd = datetime(2022, 4, 1, 0, 0)'''
 
 rates_df = pd.DataFrame(mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, dateBegin, dateEnd))
 rates_df['time'] = pd.to_datetime(rates_df['time'], unit='s')
@@ -38,12 +32,10 @@ rates_df.set_index('time', inplace=True)
 #Armazenando high locais
 df_ = rates_df.copy()
 df_["i"] = np.arange(len(df_))
-df_
 
 local_max_index = np.array(argrelextrema(rates_df.high.values, np.greater, order=15, mode='wrap')[0])
 
 local_max=[]
-
 
 for loc in local_max_index:
   local_max.append(df_.high[loc])
@@ -53,29 +45,7 @@ local_max
 
 df_["local_max"] = 0
 df_.loc[df_["i"].isin(local_max_index), "local_max"] = 1
-#df_[13:14]
 
-# %%
-#Exibindo high points
-'''dateEnd =  np.datetime64(dateEnd)
-dateBegin = np.datetime64(dateBegin)'''
-
-dateBegin_2 =  datetime(2022,3,31,9,50)
-dateEnd_2 = datetime(2022,3,31,11,20)
-
-df_2 = df_[(df_.index >= dateBegin) & (df_.index <= dateEnd)].copy()
-
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
-                    vertical_spacing=0.03, subplot_titles=('OHLC', 'Volume'), row_width=[0.2, 0.7])
-                    
-fig.add_trace(go.Candlestick(x=df_2.index, open=df_2['open'], high=df_2['high'], low=df_2['low'], close=df_2['close']), row=1, col=1)
-fig.add_trace(go.Scatter(x=df_2[df_2["local_max"] == 1].index, y=df_2[df_2["local_max"] == 1]["high"], mode="markers", marker_color="cyan", marker_symbol="x", marker_size=15, opacity=0.5), row=1, col=1)
-
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=700)
-
-fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(bounds=[18, 9], pattern="hour")])
-
-fig.show()
 # %%
 def round_limit_order_price(limitOrderPrice):
   decimal_value = limitOrderPrice % 1
@@ -100,12 +70,6 @@ trade_hour_threshold = 17
 trade_minute_treshold = 20
 #
 
-'''i = local_max_index[1]
-firstPoint = (df_[local_max_index[1]:(local_max_index[1]+1)].high).values[0]
-secondPoint = (df_[local_max_index[2]:(local_max_index[2]+1)].high).values[0]
-
-barDistance_pips = firstPoint - secondPoint
-barDistance_range = local_max_index[2] - local_max_index[1]'''
 df_["local_entry"] = 0
 df_["local_position_close"] = 0
 total_entries = 0
@@ -189,7 +153,8 @@ for i in range(len(local_max_index)):
 print("Total entries:", total_entries)
 
 # %%
-df_2 = df_[(df_.index >= dateBegin) & (df_.index <= dateEnd)].copy()
+#Plotando gráfico: exibindo max locais, entradas e saídas
+'''df_2 = df_[(df_.index >= dateBegin) & (df_.index <= dateEnd)].copy()
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
                     vertical_spacing=0.03, subplot_titles=('OHLC', 'Volume'), row_width=[0.2, 0.7])
@@ -207,4 +172,4 @@ fig.show()
 # %%
 
 
-# %%
+# %%'''
