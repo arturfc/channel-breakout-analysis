@@ -19,8 +19,8 @@ if not mt5.initialize():
 # %%
 symbol = 'WDO@N'
 
-dateBegin =  datetime(2022,3,31,0,0)
-dateEnd = datetime(2022,4,2,0,0)
+dateBegin =  datetime(2022,3,28,0,0)
+dateEnd = datetime(2022,4,2,0)
 
 rates_df = pd.DataFrame(mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, dateBegin, dateEnd))
 rates_df['time'] = pd.to_datetime(rates_df['time'], unit='s')
@@ -81,18 +81,17 @@ total_entries = 0
 profit = []
 for i in range(len(local_max_index)):
 
-  if(i <= len(local_max_index)-2):
-
+  if(i > 0):
     #Permitindo apenas canais diários
-    if (df_[local_max_index[i]:(local_max_index[i]+1)].index.day[0] != df_[local_max_index[i+1]:(local_max_index[i+1]+1)].index.day[0]):
-      print(df_[(local_max_index[i+1]):(local_max_index[i+1]+1)].index.time[0])
+    if (df_[local_max_index[i-1]:(local_max_index[i-1]+1)].index.day[0] != df_[local_max_index[i]:(local_max_index[i]+1)].index.day[0]):
+      print(df_[(local_max_index[i]):(local_max_index[i]+1)].index.time[0])
       break
 
-    firstPoint = df_[local_max_index[i]:(local_max_index[i+1]+1)].high.values[0]
-    secondPoint = df_[local_max_index[i+1]:(local_max_index[i+1]+1)].high.values[0]
+    firstPoint = df_[local_max_index[i-1]:(local_max_index[i-1]+1)].high.values[0]
+    secondPoint = df_[local_max_index[i]:(local_max_index[i]+1)].high.values[0]
 
     barDistance_pips = firstPoint - secondPoint
-    barDistance_range = local_max_index[i+1] - local_max_index[i]
+    barDistance_range = local_max_index[i] - local_max_index[i-1]
 
     j=0
     calculatingPullbackEntry = False
@@ -102,12 +101,13 @@ for i in range(len(local_max_index)):
     orderRunner=0
 
     print("i = ", i)
-    for close in df_[(local_max_index[i+1]+1):len(df_)].close.values:
+    #corrigir tamanho max desse for para menos de 540 min
+    for close in df_[(local_max_index[i]+1):len(df_)].close.values:
       j += 1
 
       #Não pode ultrapassar horário limite
-      if (df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.hour[0]) >= trade_hour_threshold and (df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.minute[0]) > trade_minute_treshold:
-        print('Time to trade is over', df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+      if (df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.hour[0]) >= trade_hour_threshold and (df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.minute[0]) > trade_minute_treshold:
+        print('Time to trade is over', df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
         print('OrdersTotal:', ordersTotal, 'PositionsTotal:', positionsTotal)
         break
 
@@ -117,7 +117,7 @@ for i in range(len(local_max_index)):
       #Verificando breakout
       if(close > breakOutLine and calculatingPullbackEntry == False):
         #print("Break out bar at number", (df_[(local_max_index[2]+j):(local_max_index[2]+j+1)].i).values[0])
-        print("Break out price:", close, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+        print("Break out price:", close, "at", df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
         calculatingPullbackEntry = True
         j += (n_bars_validation-2)
 
@@ -129,35 +129,35 @@ for i in range(len(local_max_index)):
           limitOrderPrice = round_limit_order_price(limitOrderPrice)
 
           #Se ativar ordem, cai aqui
-          if df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].low.values[0] <= limitOrderPrice:
-            #print(df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].low.values[0], "<=", limitOrderPrice)
-            print("Position created at", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0], "limitOrder:", limitOrderPrice)
+          if df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] <= limitOrderPrice:
+            #print(df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0], "<=", limitOrderPrice)
+            print("Position created at", limitOrderPrice, "at", df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0], "limitOrder:", limitOrderPrice)
             positionsTotal = True  #plotar entrada no grafico
             total_entries += 1
-            df_['local_entry'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = 1
-            df_['entry_value'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = limitOrderPrice
+            df_['local_entry'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
+            df_['entry_value'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = limitOrderPrice
             j=j+operation_duration
-            df_['local_position_close'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = 1
+            df_['local_position_close'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
 
             #calcular distância do profit
-            profit.append(((df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
+            profit.append(((df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
             #
-            print("Exit point:", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].close.values[0], df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+            print("Exit point:", df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].close.values[0], df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
             break
 
           #Ordem limite precisa ser acionada em menos de x minutos
           if (orderRunner > order_to_be_filled_threshold):
-            print("Order couldn't be filled.", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+            print("Order couldn't be filled.", df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
             break
 
         #Validando pullback (breakout validado)
         elif (ordersTotal == False):
 
-          if(df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].low.values[0] > breakOutLine):
+          if(df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] > breakOutLine):
             limitOrderPrice = breakOutLine + extra_range_entry
             limitOrderPrice = round_limit_order_price(limitOrderPrice)
             ordersTotal = True 
-            print("Opening first limit order at",limitOrderPrice, "limitOrder:", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+            print("Opening first limit order at",limitOrderPrice, "limitOrder:", limitOrderPrice, "at", df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
           else:
             print("Pullback ignored")
             break
