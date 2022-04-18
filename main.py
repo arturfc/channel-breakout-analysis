@@ -20,7 +20,7 @@ if not mt5.initialize():
 symbol = 'WDO@N'
 
 dateBegin =  datetime(2022,3,31,0,0)
-dateEnd = datetime(2022,4,1,0,0)
+dateEnd = datetime(2022,4,2,0,0)
 
 rates_df = pd.DataFrame(mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, dateBegin, dateEnd))
 rates_df['time'] = pd.to_datetime(rates_df['time'], unit='s')
@@ -60,10 +60,14 @@ def round_limit_order_price(limitOrderPrice):
   return limitOrderPrice
 
 #Variáveis de configuração
+value_per_pip = 5
+order_tax = 0
+trade_volume = 1
+
 extra_range_entry = 2
 n_bars_validation = 5
 entry_threshold_attemp = 30
-operation_duration = 5
+operation_duration = 15
 order_to_be_filled_threshold = 30
 
 trade_hour_threshold = 17
@@ -72,10 +76,17 @@ trade_minute_treshold = 20
 
 df_["local_entry"] = 0
 df_["local_position_close"] = 0
+df_["entry_value"] = 0
 total_entries = 0
+profit = []
 for i in range(len(local_max_index)):
 
   if(i <= len(local_max_index)-2):
+
+    #Permitindo apenas canais diários
+    if (df_[local_max_index[i]:(local_max_index[i]+1)].index.day[0] != df_[local_max_index[i+1]:(local_max_index[i+1]+1)].index.day[0]):
+      print(df_[(local_max_index[i+1]):(local_max_index[i+1]+1)].index.time[0])
+      break
 
     firstPoint = df_[local_max_index[i]:(local_max_index[i+1]+1)].high.values[0]
     secondPoint = df_[local_max_index[i+1]:(local_max_index[i+1]+1)].high.values[0]
@@ -97,7 +108,7 @@ for i in range(len(local_max_index)):
       #Não pode ultrapassar horário limite
       if (df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.hour[0]) >= trade_hour_threshold and (df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.minute[0]) > trade_minute_treshold:
         print('Time to trade is over', df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
-        print('PrdersTotal:', ordersTotal, 'PositionsTotal:', positionsTotal)
+        print('OrdersTotal:', ordersTotal, 'PositionsTotal:', positionsTotal)
         break
 
       lineVariation = (barDistance_pips*(barDistance_range+j))/barDistance_range
@@ -120,14 +131,17 @@ for i in range(len(local_max_index)):
           #Se ativar ordem, cai aqui
           if df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].low.values[0] <= limitOrderPrice:
             #print(df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].low.values[0], "<=", limitOrderPrice)
-            print("Position created at", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+            print("Position created at", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0], "limitOrder:", limitOrderPrice)
             positionsTotal = True  #plotar entrada no grafico
             total_entries += 1
             df_['local_entry'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = 1
+            df_['entry_value'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = limitOrderPrice
             j=j+operation_duration
             df_['local_position_close'][(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)] = 1
 
             #calcular distância do profit
+            profit.append(((df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
+            #
             print("Exit point:", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+j+1)].close.values[0], df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
             break
 
@@ -143,7 +157,7 @@ for i in range(len(local_max_index)):
             limitOrderPrice = breakOutLine + extra_range_entry
             limitOrderPrice = round_limit_order_price(limitOrderPrice)
             ordersTotal = True 
-            print("Opening limit order at",limitOrderPrice, "limitOrder:", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
+            print("Opening first limit order at",limitOrderPrice, "limitOrder:", limitOrderPrice, "at", df_[(local_max_index[i+1]+j):(local_max_index[i+1]+1+j)].index.time[0])
           else:
             print("Pullback ignored")
             break
@@ -151,17 +165,18 @@ for i in range(len(local_max_index)):
 
 #----------Up -> inside for
 print("Total entries:", total_entries)
+print(profit)
 
 # %%
 #Plotando gráfico: exibindo max locais, entradas e saídas
-'''df_2 = df_[(df_.index >= dateBegin) & (df_.index <= dateEnd)].copy()
+df_2 = df_[(df_.index >= dateBegin) & (df_.index <= dateEnd)].copy()
 
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
                     vertical_spacing=0.03, subplot_titles=('OHLC', 'Volume'), row_width=[0.2, 0.7])
                     
 fig.add_trace(go.Candlestick(x=df_2.index, open=df_2['open'], high=df_2['high'], low=df_2['low'], close=df_2['close']), row=1, col=1)
 fig.add_trace(go.Scatter(x=df_2[df_2["local_max"] == 1].index, y=df_2[df_2["local_max"] == 1]["high"], mode="markers", marker_color="cyan", marker_symbol="x", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df_2[df_2["local_entry"] == 1].index, y=df_2[df_2["local_entry"] == 1]["close"], mode="markers", marker_color="cyan", marker_symbol="circle", marker_size=15, opacity=0.5), row=1, col=1)
+fig.add_trace(go.Scatter(x=df_2[df_2["local_entry"] == 1].index, y=df_2[df_2["local_entry"] == 1]["entry_value"], mode="markers", marker_color="cyan", marker_symbol="circle", marker_size=15, opacity=0.5), row=1, col=1)
 fig.add_trace(go.Scatter(x=df_2[df_2["local_position_close"] == 1].index, y=df_2[df_2["local_position_close"] == 1]["close"], mode="markers", marker_color="cyan", marker_symbol="square", marker_size=15, opacity=0.5), row=1, col=1)
 
 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=700)
@@ -172,4 +187,4 @@ fig.show()
 # %%
 
 
-# %%'''
+# %%
