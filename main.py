@@ -22,8 +22,8 @@ if not mt5.initialize():
 # %%
 symbol = 'WDO@N'
 
-'''dateBegin =  datetime(2022,4,18,0,0)
-dateEnd = datetime(2022,4,19,0)
+'''dateBegin =  datetime(2022,3,31,0,0)
+dateEnd = datetime(2022,4,1,0)
 
 rates_df = pd.DataFrame(mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, dateBegin, dateEnd))
 rates_df_2 = rates_df
@@ -68,23 +68,34 @@ def round_limit_order_price(limitOrderPrice):
   return limitOrderPrice
 
 #Variáveis de configuração
-value_per_pip = 5
-order_tax = 0
-trade_volume = 1
 
-extra_range_entry = 0.5
-n_bars_validation = 5
-entry_threshold_attemp = 30
-operation_duration = 5
-order_to_be_filled_threshold = 30
+#dados do ativo
+value_per_pip = 10
+order_tax = 0
+
+#dentro da operação
+trade_volume = 1
+stop_gain_distance = 4
+stop_loss_distance = 4
+operation_time = 30
+
+#validação do pullback
+n_bars_validation = 10  #numero de barras para validar um pullback
+extra_range_entry = 0   #range para entrar adiantado na operação
+operation_duration = 15 #deprecated
+
+order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
 
 trade_hour_threshold = 17
 trade_minute_treshold = 20
 #
 
 df_["local_entry"] = 0
-df_["local_position_close"] = 0
 df_["entry_value"] = 0
+df_["exit"] = 0
+df_["exit_value"] = 0
+df_["local_position_close"] = 0   #deprecated
+
 total_entries = 0
 profit = []
 
@@ -143,11 +154,39 @@ for i in range(1,len(local_max_index)):
           total_entries += 1
           df_['local_entry'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
           df_['entry_value'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = limitOrderPrice
-          j=j+operation_duration
-          df_['local_position_close'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
+          #
+          operation_timer = 0
+          for k in df_[(local_max_index[i]+j+1):(local_max_index[i]+j+operation_time+1)].i:
+            operation_timer +=1
+            stop_gain = limitOrderPrice+stop_gain_distance
+            stop_loss = limitOrderPrice-stop_loss_distance
+
+            if df_[k:k+1].high.values >= stop_gain:
+              df_['exit'][k:k+1] = 1
+              df_['exit_value'][k:k+1] = stop_gain
+              profit.append((stop_gain_distance*value_per_pip*trade_volume)+order_tax)
+              break
+
+            elif df_[k:k+1].low.values <= stop_loss:
+              df_['exit'][k:k+1] = 1
+              df_['exit_value'][k:k+1] = stop_loss
+              profit.append(((-stop_loss_distance)*value_per_pip*trade_volume)+order_tax)
+              break
+
+            if operation_timer == operation_time:
+              df_['exit'][k:k+1] = 1
+              df_['exit_value'][k:k+1] = df_[k:k+1].close.values
+              profit.append(((df_[k:k+1].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
+              break
+
+            
+          #deprecated usage!!!!!!!!!!!!!
+          #j=j+operation_duration
+          #df_['local_position_close'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
+          ##
 
           #calcular distância do profit
-          profit.append(((df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
+          #profit.append(((df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].close.values - limitOrderPrice)*value_per_pip*trade_volume)+order_tax)
           #
           #print("Exit point:", df_[(local_max_index[i]+j):(local_max_index[i]+j+1)].close.values[0], df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
           break
@@ -180,9 +219,9 @@ print(sns.distplot(profit, bins=15))
 print("Total entries:", total_entries,
       "\nIgnored pullbacks:", ignored_pullbacks,
       "\nIgnored limit orders:", ignored_limit_orders,
-      "\nMean:", profit[0].mean(),
-      "\nStd:", profit[0].std(),)
-
+      "\nSum:", profit.values.sum(),
+      "\nMean:", profit.values.mean(),
+      "\nStd:", profit.values.std(),)
 
 
 # %%
@@ -199,7 +238,7 @@ fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": F
 fig.add_trace(go.Candlestick(x=df_2.index, open=df_2['open'], high=df_2['high'], low=df_2['low'], close=df_2['close']), row=1, col=1)
 fig.add_trace(go.Scatter(x=df_2[df_2["local_max"] == 1].index, y=df_2[df_2["local_max"] == 1]["high"], mode="markers", marker_color="cyan", marker_symbol="x", marker_size=15, opacity=0.5), row=1, col=1)
 fig.add_trace(go.Scatter(x=df_2[df_2["local_entry"] == 1].index, y=df_2[df_2["local_entry"] == 1]["entry_value"], mode="markers", marker_color="cyan", marker_symbol="circle", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df_2[df_2["local_position_close"] == 1].index, y=df_2[df_2["local_position_close"] == 1]["close"], mode="markers", marker_color="cyan", marker_symbol="square", marker_size=15, opacity=0.5), row=1, col=1)
+fig.add_trace(go.Scatter(x=df_2[df_2["exit"] == 1].index, y=df_2[df_2["exit"] == 1]["exit_value"], mode="markers", marker_color="cyan", marker_symbol="square", marker_size=15, opacity=0.5), row=1, col=1)
 
 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=700)
 
