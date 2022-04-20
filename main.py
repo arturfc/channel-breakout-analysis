@@ -124,6 +124,7 @@ for i in range(1,len(local_max_index)):
   #corrigir tamanho max desse for para menos de 540 min
   for close in df_[(local_max_index[i]+1):len(df_)].close.values:
     j += 1
+    print(local_max_index[i]+j)
     #Não pode ultrapassar horário limite
     if (df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.hour[0]) >= trade_hour_threshold and (df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.minute[0]) > trade_minute_treshold:
       #print('Time to trade is over', df_[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.time[0])
