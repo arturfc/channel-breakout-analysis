@@ -10,11 +10,18 @@ import pyarrow.parquet as pq
 from datetime import datetime
 from scipy.signal import argrelextrema
 from plotly.subplots import make_subplots
+import ta
 
 df = pq.ParquetFile("output.parquet").read().to_pandas()
 df.set_index('time', inplace=True)
 df.index = pd.to_datetime(df.index, format="%Y-%m-%d %H:%M:%S")
-df["close"].plot()
+
+#adicionando média móvel simples de 200 períodos ou RSI
+#df['SMA_200'] = df.close.rolling(200).mean()
+df['rsi'] = ta.momentum.rsi(df.close, 7)
+
+#Note que o mercado passa por duas grandes fases de tendência
+df[["close"]].plot()
 # %%
 #Armazenando high locais
 df["i"] = np.arange(len(df))
@@ -117,7 +124,8 @@ for i in range(1,len(local_max_index)):
         limitOrderPrice = round_limit_order_price(limitOrderPrice)
 
         #Se ativar ordem, cai aqui
-        if df[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] <= limitOrderPrice:
+        if (df[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] <= limitOrderPrice
+            and df[(local_max_index[i]+j):(local_max_index[i]+j+1)].rsi.values[0] > 20):
           df['local_entry'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
           df['entry_value'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = limitOrderPrice
           
@@ -130,19 +138,19 @@ for i in range(1,len(local_max_index)):
             if df[k:k+1].high.values >= stop_gain:
               df['exit'][k:k+1] = 1
               df['exit_value'][k:k+1] = stop_gain
-              profit.append((stop_gain_distance*value_per_pip*trade_volume)-(order_tax*2))
+              profit.append((stop_gain_distance*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
               break
 
             elif df[k:k+1].low.values <= stop_loss:
               df['exit'][k:k+1] = 1
               df['exit_value'][k:k+1] = stop_loss
-              profit.append(((-stop_loss_distance)*value_per_pip*trade_volume)-(order_tax*2))
+              profit.append(((-stop_loss_distance)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
               break
 
             if operation_timer == operation_time:
               df['exit'][k:k+1] = 1
               df['exit_value'][k:k+1] = df[k:k+1].close.values
-              profit.append(((df[k:k+1].close.values[0] - limitOrderPrice)*value_per_pip*trade_volume)-(order_tax*2))
+              profit.append(((df[k:k+1].close.values[0] - limitOrderPrice)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
               break
           break
 
@@ -193,8 +201,8 @@ print("Período:", df[0:1].index[-1].strftime('%Y-%m-%d %X'), "-", df[(len(df)-1
 
 # %%
 #Plotando um exemplo da amostra: exibindo max locais, entradas e saídas
-dateBegin =  datetime(2022,4,11,17,50)
-dateEnd = datetime(2022,4,13,0)
+dateBegin =  datetime(2022,4,12,13,40)
+dateEnd = datetime(2022,4,12,16,0)
 
 df2 = df[(df.index >= dateBegin) & (df.index <= dateEnd)].copy()
 
