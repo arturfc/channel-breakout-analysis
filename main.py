@@ -1,44 +1,15 @@
 #%%
 import MetaTrader5 as mt5
 import pandas as pd
-import time
-import plotly.graph_objects as go
-import cufflinks as cf
 import numpy as np
-import seaborn as sns
 import pyarrow.parquet as pq
-from datetime import datetime
-from scipy.signal import argrelextrema
-from plotly.subplots import make_subplots
+import seaborn as sns
 import ta
+import time
+import os
+from scipy.signal import argrelextrema
+from datetime import datetime
 
-df = pq.ParquetFile("output.parquet").read().to_pandas()
-df.set_index('time', inplace=True)
-df.index = pd.to_datetime(df.index, format="%Y-%m-%d %H:%M:%S")
-
-#adicionando média móvel simples de 200 períodos ou RSI
-#df['SMA_200'] = df.close.rolling(200).mean()
-df['rsi'] = ta.momentum.rsi(df.close, 7)
-
-#Note que o mercado passa por duas grandes fases de tendência
-df[["close"]].plot()
-# %%
-#Armazenando high locais
-df["i"] = np.arange(len(df))
-
-local_max_index = np.array(argrelextrema(df.high.values, np.greater, order=15, mode='wrap')[0])
-
-local_max=[]
-for loc in local_max_index:
-  local_max.append(df.high[loc])
-
-local_max=np.array(local_max)
-local_max
-
-df["local_max"] = 0
-df.loc[df["i"].isin(local_max_index), "local_max"] = 1
-
-# %%
 def round_limit_order_price(limitOrderPrice):
   decimal_value = limitOrderPrice % 1
 
@@ -51,171 +22,313 @@ def round_limit_order_price(limitOrderPrice):
 
   return limitOrderPrice
 
-#Variáveis de configuração
 
-#dados do ativo
-value_per_pip = 10  #valor em R$ por variação de 1 ponto
-order_tax = 1.33       #custo em R$ por ordem enviada
+def calculateChannelResistance(barDistance_pips, current_position, barDistance_range, first_point_value):
+  lineVariation = (barDistance_pips*(barDistance_range+current_position))/barDistance_range
+  channelResistance = first_point_value - lineVariation
+  return channelResistance
 
-#dentro da operação
-trade_volume = 1          #número de lotes/contratos
-stop_gain_distance = 14    #distância do stop gain
-stop_loss_distance = 6    #distância do stop loss
-operation_time = 30       #duração máxima de uma operação
+df_rates = pq.ParquetFile("output.parquet").read().to_pandas()
+df_rates.time = pd.to_datetime(df_rates.time, format="%Y-%m-%d %H:%M:%S")
+df_rates = df_rates.reset_index()
 
-#validação do pullback
-n_bars_validation = 10  #numero de barras para validar um pullback
-extra_range_entry = 0   #range para entrar adiantado na operação
-operation_duration = 15 #deprecated
+del df_rates["tick_volume"]
+del df_rates["spread"]
+del df_rates["real_volume"]
+del df_rates["index"]
 
-order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
-
-trade_hour_threshold = 17   #horário limite de trade 
-trade_minute_treshold = 0  #minuto limite de trade
 #
+t0 = time.time()
+df_results = pd.DataFrame(columns=['Saldo Líquido','Número de entradas', 'Taxa de acerto','Payoff','Média de lucro por operação',"Desvio padrão"])
 
-df["local_entry"] = 0
-df["entry_value"] = 0
-df["exit"] = 0
-df["exit_value"] = 0
+#armazenando possíveos combinações de variáveis
+'''stop_gain_distance_arr = np.arange(start=4, stop=17, step=6)
+stop_loss_distance_arr = np.arange(start=4, stop=17, step=6)
 
-ignored_pullbacks = 0
-ignored_limit_orders = 0
-profit = []
+enable_RSI_arr = np.array([1, 0])
+rsi_period_arr = np.array([9,10,11]) 
+rsi_value_arr = np.array([30,50,70]) 
 
-for i in range(1,len(local_max_index)):
+operation_time_arr = np.arange(start=10, stop=31, step=10)      
+n_bars_validation_arr = np.arange(start=5, stop=16, step=5)
+extra_range_entry_arr = np.array([0, 0.5]) 
 
-  #Permitindo apenas canais diários
-  if (df[local_max_index[i-1]:(local_max_index[i-1]+1)].index.day[0] != df[local_max_index[i]:(local_max_index[i]+1)].index.day[0]):
-    continue
+combination_arr = np.array(np.meshgrid(
+    stop_gain_distance_arr, 
+    stop_loss_distance_arr, 
+    enable_RSI_arr,
+    rsi_period_arr,
+    rsi_value_arr,
+    operation_time_arr,
+    n_bars_validation_arr,
+    extra_range_entry_arr,
+)).T.reshape(-1,8)
 
-  firstPoint = df[local_max_index[i-1]:(local_max_index[i-1]+1)].high.values[0]
-  secondPoint = df[local_max_index[i]:(local_max_index[i]+1)].high.values[0]
+df_variables = pd.DataFrame(combination_arr, columns=[
+    "stop_gain_distance",
+    "stop_loss_distance",
+    "RSI_enable",
+    "RSI_period",
+    "RSI_value",
+    "operation_time",
+    "n_bars_validation",
+    "extra_range_entry"
+    ])'''
 
-  barDistance_pips = firstPoint - secondPoint
-  barDistance_range = local_max_index[i] - local_max_index[i-1]
+operation_time_arr = np.arange(start=10, stop=31, step=10)      
+n_bars_validation_arr = np.arange(start=5, stop=16, step=5)
 
-  j=0
-  calculatingPullbackEntry = False
-  ordersTotal = False
-  limitOrderPrice = 0
-  orderRunner=0
+combination_arr = np.array(np.meshgrid(
+    operation_time_arr,
+    n_bars_validation_arr,
+)).T.reshape(-1,2)
 
-  for close in df[(local_max_index[i]+1):len(df)].close.values:
-    j += 1
-    #Não pode ultrapassar horário limite
-    if ((df[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.hour[0]) >= trade_hour_threshold and 
-    (df[(local_max_index[i]+j):(local_max_index[i]+1+j)].index.minute[0]) > trade_minute_treshold):
-      break
+df_variables = pd.DataFrame(combination_arr, columns=[
+    "operation_time",
+    "n_bars_validation",
+    ])
+#%%
+#DENTRO DO LOOP ESSAS VAR SAO ALIMENTADAS
+for var_combination in combination_arr:
 
-    lineVariation = (barDistance_pips*(barDistance_range+j))/barDistance_range
-    breakOutLine = firstPoint - lineVariation
+    #dados do ativo (WDO)
+    value_per_pip = 10  #valor em R$ por variação de 1 ponto
+    order_tax = 1.33       #custo em R$ por ordem enviada
 
-    #Verificando breakout
-    if(close > breakOutLine and calculatingPullbackEntry == False):
-      calculatingPullbackEntry = True
-      j += (n_bars_validation-2)
+    #dentro da operação
+    trade_volume = 1          #número de lotes/contratos
+    stop_gain_distance = 14    #distância do stop gain em pontos
+    stop_loss_distance = 6    #distância do stop loss em pontos
+    operation_time = var_combination[0]       #duração máxima de uma operação
 
-    #Atualizando limit order (pullback validado)
-    elif(calculatingPullbackEntry == True):
-      if ordersTotal == True:
-        orderRunner +=1
-        limitOrderPrice = breakOutLine + extra_range_entry
-        limitOrderPrice = round_limit_order_price(limitOrderPrice)
+    n_bars_validation = var_combination[1]  #numero de barras para validar um pullback
+    extra_range_entry = 0   #range para entrar adiantado na operação
+    order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
 
-        #Se ativar ordem, cai aqui
-        if (df[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] <= limitOrderPrice
-            and df[(local_max_index[i]+j):(local_max_index[i]+j+1)].rsi.values[0] > 20):
-          df['local_entry'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = 1
-          df['entry_value'][(local_max_index[i]+j):(local_max_index[i]+j+1)] = limitOrderPrice
+    enable_RSI = 1
+    rsi_period = 7
+    rsi_value = 20
+
+    trade_hour_threshold = 17   #horário limite de trade 
+    trade_minute_threshold = 0  #minuto limite de trade
+
+    df = df_rates
+
+    #criando local_max
+    local_max_index = np.array(argrelextrema(df.high.values, np.greater, order=15, mode='wrap')[0])
+
+    df['local_max'] = 0
+    df.loc[local_max_index, 'local_max'] = 1
+
+    #print(df['local_max'].value_counts())
+
+
+    #Obtendo index do local_high anterior
+    prev_high_index_array = df.iloc[df.local_max.values == 1].index.values
+    prev_high_index_array = np.roll(prev_high_index_array, 1)
+    prev_high_index_array[0] = 0
+
+    df['prev_high_index'] = 0
+    df.loc[local_max_index, 'prev_high_index'] = np.where(
+      df.loc[df.local_max.values == 1].local_max.values,
+      prev_high_index_array, 0
+      )
+
+    #df.iloc[local_max_index]
+
+
+    #filtrando limite máximo de pesquisa
+
+    total_min_threshold = trade_hour_threshold*60 + trade_minute_threshold
+
+    daily_min = df.iloc[local_max_index].time.values.astype('datetime64[m]') - df.iloc[local_max_index].time.dt.normalize().values.astype('datetime64[m]')
+    search_index_array = total_min_threshold - daily_min 
+
+    df['search_index'] = 0
+    df.loc[local_max_index, 'search_index'] = np.where(
+      df.loc[df.local_max.values == 1].local_max.values,
+      search_index_array, 0
+      )
+
+
+    #Habilitando apenas calculo de canais diários
+    search_index_array = search_index_array.astype('int32')
+
+    isNewDay_array = np.where(
+      np.roll(search_index_array, 1) < search_index_array,
+      True,False
+      )
+
+    isNewDay_array
+
+    df['isNewDay'] = False
+    df.loc[local_max_index, 'isNewDay'] = np.where(
+      df.loc[df.local_max.values == 1].local_max.values,
+      isNewDay_array, False
+      )
+
+
+    #filtrando candidatos a calculos
+    conditions = [
+      (df.iloc[local_max_index].local_max == 1) &
+      (df.iloc[local_max_index].search_index > 0) &
+      (df.iloc[local_max_index].isNewDay == False)
+    ]
+
+    filtered_index_array = np.select(conditions, [df.iloc[local_max_index].index], default = 0)
+    filtered_index_array = filtered_index_array[filtered_index_array != 0]
+
+
+    #criando array com informações necessárias para o cálculo de breakout
+    useful_calc_info = df.iloc[filtered_index_array].apply(
+      lambda x: (df.iloc[x.prev_high_index].high, x.high,x.prev_high_index, x.name, x.search_index),
+      axis=1)
+
+    useful_calc_info = useful_calc_info.to_numpy(dtype=object)
+
+
+    #calculando breakout, pullbacks e entradas
+    profit = np.array([])
+
+    df['rsi'] = ta.momentum.rsi(df.close, rsi_period)
+
+    df["local_entry"] = 0
+    df["entry_value"] = 0
+
+    df["exit"] = 0
+    df["exit_value"] = 0
+
+    for i in useful_calc_info:
+      
+     
+      barDistance_pips = i[0] - i[1]
+      barDistance_range = i[3] - i[2]
+
+      starting_range = i[3]+1
+      
+      ending_range = i[3] + i[4]
+
+      positionsTotal = False
+      ordersTotal = False
+      orderRunner=0
+      
+
+      #validando breakout
+      for row in df.iloc[starting_range:ending_range+1].index.values:
+        channelResistance = calculateChannelResistance(barDistance_pips, row-i[3], barDistance_range, i[0])
+
+        #validando breakout
+        if df.close.iloc[row] > channelResistance:
+          row += n_bars_validation-1
+          channelResistance = calculateChannelResistance(barDistance_pips, row-i[3], barDistance_range, i[0])
           
-          operation_timer = 0
-          for k in df[(local_max_index[i]+j+1):(local_max_index[i]+j+operation_time+1)].i:
-            operation_timer +=1
-            stop_gain = limitOrderPrice+stop_gain_distance
-            stop_loss = limitOrderPrice-stop_loss_distance
+          #validando pullback
+          if(df.low.iloc[row] > channelResistance):
+            ordersTotal = True
 
-            if df[k:k+1].high.values >= stop_gain:
-              df['exit'][k:k+1] = 1
-              df['exit_value'][k:k+1] = stop_gain
-              profit.append((stop_gain_distance*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
-              break
-
-            elif df[k:k+1].low.values <= stop_loss:
-              df['exit'][k:k+1] = 1
-              df['exit_value'][k:k+1] = stop_loss
-              profit.append(((-stop_loss_distance)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
-              break
-
-            if operation_timer == operation_time:
-              df['exit'][k:k+1] = 1
-              df['exit_value'][k:k+1] = df[k:k+1].close.values
-              profit.append(((df[k:k+1].close.values[0] - limitOrderPrice)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
-              break
           break
 
-        #Ordem limite precisa ser acionada em menos de x minutos
-        if (orderRunner > order_to_be_filled_threshold):
-          ignored_limit_orders += 1
-          break
+      #verificando possível entrada pelo pullback (considerando ordem enviada)
+      if ordersTotal == True:
+        for row in df.iloc[row+1:ending_range+1].index.values:
 
-      #Validando pullback (breakout validado)
-      elif (ordersTotal == False):
+          orderRunner +=1
 
-        if(df[(local_max_index[i]+j):(local_max_index[i]+j+1)].low.values[0] > breakOutLine):
-          #Abrindo ordem limite
-          limitOrderPrice = breakOutLine + extra_range_entry
+          channelResistance = calculateChannelResistance(barDistance_pips, row-i[3], barDistance_range, i[0])
+
+          limitOrderPrice = channelResistance+extra_range_entry
           limitOrderPrice = round_limit_order_price(limitOrderPrice)
-          ordersTotal = True 
-        else:
-          #Ignorando pullback
-          ignored_pullbacks += 1
-          break
 
-profit = pd.DataFrame(profit)
-profit.columns = profit.columns.map(str)
-profit.rename(columns={'0':'profit_per_trade'}, inplace=True)
-profit[['cum_sum']] = profit['profit_per_trade'].cumsum()
-profit['positive_trades'] = np.where(profit.profit_per_trade > 0, profit.profit_per_trade, 0)
-profit['negative_trades'] = np.where(profit.profit_per_trade <= 0, profit.profit_per_trade, 0)
+          #se ativar ordem, cai aqui
+          if (df.low.iloc[row] <= limitOrderPrice):
+            if (enable_RSI == 1):
+                if (df.rsi.iloc[row] > rsi_value):
+                    df.loc[row, 'local_entry'] = 1 
+                    df.loc[row, 'entry_value'] = limitOrderPrice 
+                    row_value = row
+                    positionsTotal = True
+                    break
 
-payoff = round(abs(profit['positive_trades'].mean()/profit['negative_trades'].mean()),2)
-winrate = len(profit[profit.positive_trades > 0])/len(profit)
+            else:
+                df.loc[row, 'local_entry'] = 1 
+                df.loc[row, 'entry_value'] = limitOrderPrice 
+                row_value = row
+                positionsTotal = True
+                break
+            
+          elif orderRunner > order_to_be_filled_threshold:
+            break
+        
 
-#%%
-#Exibindo evolução do patrimonio sobre o acumulado de operações
-profit["cum_sum"].plot()
-#%%
-#Informações adicionais
+      if (positionsTotal == True):
+        operation_timer = 0 
+        for row in df.iloc[row+1:(row+1+operation_time)].index.values:
+          operation_timer += 1
 
-print("Período:", df[0:1].index[-1].strftime('%Y-%m-%d %X'), "-", df[(len(df)-1):len(df)].index[0].strftime('%Y-%m-%d %X'),
-      "\nSaldo líquido:", round(profit.cum_sum.iloc[-1],2), "reais",
-      "\nNúmero de entradas:", len(profit),
-      "\nTaxa de acerto:", round(winrate,2),
-      "\nPayoff:", payoff,
-      "\nMédia de lucro por operação:", round(profit.profit_per_trade.mean(),2),
-      "\nDesvio padrão:", round(profit.profit_per_trade.std(),2),
-      "\nNúmero de pullbacks ignorados:", ignored_pullbacks,
-      "\nNúmero de ordens limite ignorados:", ignored_limit_orders,
-      sns.histplot(profit.profit_per_trade, bins=15))
+          stop_gain = limitOrderPrice+stop_gain_distance
+          stop_loss = limitOrderPrice-stop_loss_distance
 
-# %%
-#Plotando um exemplo da amostra: exibindo max locais, entradas e saídas
-dateBegin =  datetime(2022,4,12,13,40)
-dateEnd = datetime(2022,4,12,16,0)
+          if df.high.iloc[row] >= stop_gain:
+            df.loc[row, 'exit'] = 1 
+            df.loc[row, 'exit_value'] = stop_gain
+            profit = np.append(profit, (stop_gain_distance*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
+            break
 
-df2 = df[(df.index >= dateBegin) & (df.index <= dateEnd)].copy()
+          elif df.low.iloc[row] <= stop_loss:
+            df.loc[row, 'exit'] = 1
+            df.loc[row, 'exit_value'] = stop_loss
+            profit = np.append(profit, ((-stop_loss_distance)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
+            break
 
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
-                    vertical_spacing=0.03, subplot_titles=('OHLC - 1 min timeframe', 'Volume'), row_width=[0.2, 0.7])
-                    
-fig.add_trace(go.Candlestick(x=df2.index, open=df2['open'], high=df2['high'], low=df2['low'], close=df2['close'], name="Candle"), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["local_max"] == 1].index, y=df2[df2["local_max"] == 1]["high"], name="Topo Local", mode="markers", marker_color="cyan", marker_symbol="x", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["local_entry"] == 1].index, y=df2[df2["local_entry"] == 1]["entry_value"], name="Compra", mode="markers", marker_color="green", marker_symbol="circle", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["exit"] == 1].index, y=df2[df2["exit"] == 1]["exit_value"], name="Venda", mode="markers", marker_color="red", marker_symbol="square", marker_size=15, opacity=0.5), row=1, col=1)
+          elif operation_timer == operation_time:
+            df.loc[row, 'exit'] = 1
+            df.loc[row, 'exit_value'] = df.close.iloc[row]
+            profit = np.append(profit, ((df.close.iloc[row] - limitOrderPrice)*value_per_pip*trade_volume)-(order_tax*2*trade_volume))
+            break
 
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=700)
-fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(bounds=[18, 9], pattern="hour")])
 
-fig.show()
-# %%
+    profit = pd.DataFrame(profit, columns=["profit_per_trade"])
+    profit[['cum_sum']] = profit['profit_per_trade'].cumsum()
+    profit['positive_trades'] = np.where(profit.profit_per_trade > 0, profit.profit_per_trade, 0)
+    profit['negative_trades'] = np.where(profit.profit_per_trade <= 0, profit.profit_per_trade, 0)
+
+
+    results_array = np.array(
+        [round(profit.cum_sum.iloc[-1],2),
+        len(profit),
+        round(len(profit[profit.positive_trades > 0])/len(profit),2),
+        round(abs(profit['positive_trades'].mean()/profit['negative_trades'].mean()),2),
+        round(profit.profit_per_trade.mean(),2),
+        round(profit.profit_per_trade.std(),2)]
+        )
+
+    df_results = df_results.append(pd.DataFrame(results_array.reshape(1,-1), columns=list(df_results)), ignore_index=True)
+
+#loop termina aqui
+t1 = time.time()
+total = t1-t0
+print("Tempo total de execução",total)
+
+file_list = ['Resultados.csv', 'Variaveis.csv']
+for file in file_list:
+    if(os.path.exists(file) and os.path.isfile(file)):
+        os.remove(file)
+
+df_results.to_csv('Resultados.csv')
+df_variables.to_csv('Variaveis.csv')
+
+#printando as 5 melhores combinações
+best_variable_index_arr = df_results.sort_values('Saldo Líquido', ascending=False).index
+worst_variable_index_arr = df_results.sort_values('Saldo Líquido').head(5).index
+
+print(
+    "\nMelhores 5 resultados:\n",
+    df_results.iloc[best_variable_index_arr[0:5]],
+    #"\nConfiguração dos 5 melhores resultados:\n",
+    #df_variables.iloc[best_variable_index_arr[0:5]],
+    "\n\nPiores 5 resultados:\n",
+    df_results.iloc[worst_variable_index_arr[0:5]]
+    #"\nConfiguração dos 5 melhores resultados:\n",
+    #df_variables.iloc[worst_variable_index_arr[0:5]]
+)
+
