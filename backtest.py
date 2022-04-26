@@ -1,4 +1,3 @@
-#%%
 import MetaTrader5 as mt5
 import pandas as pd
 import numpy as np
@@ -22,27 +21,23 @@ def round_limit_order_price(limitOrderPrice):
 
   return limitOrderPrice
 
-
 def calculateChannelResistance(barDistance_pips, current_position, barDistance_range, first_point_value):
   lineVariation = (barDistance_pips*(barDistance_range+current_position))/barDistance_range
   channelResistance = first_point_value - lineVariation
   return channelResistance
 
-df_rates = pq.ParquetFile("output.parquet").read().to_pandas()
-df_rates.time = pd.to_datetime(df_rates.time, format="%Y-%m-%d %H:%M:%S")
-df_rates = df_rates.reset_index()
-
-del df_rates["tick_volume"]
-del df_rates["spread"]
-del df_rates["real_volume"]
-del df_rates["index"]
-
+#variáveis extras - dados do ativo WDO
+value_per_pip = 10 #valor em R$ por variação de 1 ponto
+order_tax = 1.33 #custo em R$ por ordem enviada
+trade_hour_threshold = 17 #horário limite de trade 
+trade_minute_threshold = 0 #minuto limite de trade
+trade_volume = 1 #número de lotes/contratos
+order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
 #
-t0 = time.time()
-df_results = pd.DataFrame(columns=['Saldo Líquido','Número de entradas', 'Taxa de acerto','Payoff','Média de lucro por operação',"Desvio padrão"])
 
-#armazenando possíveos combinações de variáveis
-'''stop_gain_distance_arr = np.arange(start=4, stop=17, step=6)
+#Mais variáveis
+#Armazenando possíveis combinações de variáveis
+stop_gain_distance_arr = np.arange(start=4, stop=17, step=6)
 stop_loss_distance_arr = np.arange(start=4, stop=17, step=6)
 
 enable_RSI_arr = np.array([1, 0])
@@ -51,7 +46,7 @@ rsi_value_arr = np.array([30,50,70])
 
 operation_time_arr = np.arange(start=10, stop=31, step=10)      
 n_bars_validation_arr = np.arange(start=5, stop=16, step=5)
-extra_range_entry_arr = np.array([0, 0.5]) 
+extra_range_entry_arr = np.array([0, 1])
 
 combination_arr = np.array(np.meshgrid(
     stop_gain_distance_arr, 
@@ -73,44 +68,32 @@ df_variables = pd.DataFrame(combination_arr, columns=[
     "operation_time",
     "n_bars_validation",
     "extra_range_entry"
-    ])'''
-
-operation_time_arr = np.arange(start=10, stop=31, step=10)      
-n_bars_validation_arr = np.arange(start=5, stop=16, step=5)
-
-combination_arr = np.array(np.meshgrid(
-    operation_time_arr,
-    n_bars_validation_arr,
-)).T.reshape(-1,2)
-
-df_variables = pd.DataFrame(combination_arr, columns=[
-    "operation_time",
-    "n_bars_validation",
     ])
-#%%
-#DENTRO DO LOOP ESSAS VAR SAO ALIMENTADAS
+
+df_rates = pq.ParquetFile("WDO_dados.parquet").read().to_pandas()
+df_rates.time = pd.to_datetime(df_rates.time, format="%Y-%m-%d %H:%M:%S")
+df_rates = df_rates.reset_index()
+
+del df_rates["tick_volume"]
+del df_rates["spread"]
+del df_rates["real_volume"]
+del df_rates["index"]
+
+df_results = pd.DataFrame(columns=['Saldo Líquido','Número de entradas', 'Taxa de acerto','Payoff','Média de lucro por operação',"Desvio padrão"])
+#
+t0 = time.time()
+#Backtest completo contendo as possíveis combinações
+
 for var_combination in combination_arr:
-
-    #dados do ativo (WDO)
-    value_per_pip = 10  #valor em R$ por variação de 1 ponto
-    order_tax = 1.33       #custo em R$ por ordem enviada
-
-    #dentro da operação
-    trade_volume = 1          #número de lotes/contratos
-    stop_gain_distance = 14    #distância do stop gain em pontos
-    stop_loss_distance = 6    #distância do stop loss em pontos
-    operation_time = var_combination[0]       #duração máxima de uma operação
-
-    n_bars_validation = var_combination[1]  #numero de barras para validar um pullback
-    extra_range_entry = 0   #range para entrar adiantado na operação
-    order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
-
-    enable_RSI = 1
-    rsi_period = 7
-    rsi_value = 20
-
-    trade_hour_threshold = 17   #horário limite de trade 
-    trade_minute_threshold = 0  #minuto limite de trade
+    #Alimentando variáveis
+    stop_gain_distance = var_combination[0] #distância do stop gain em pontos
+    stop_loss_distance = var_combination[1] #distância do stop loss em pontos
+    enable_RSI = var_combination[2] #0 ou 1 para habilitar RSI
+    rsi_period = var_combination[3] #período RSI
+    rsi_value = var_combination[4] #valor RSI
+    operation_time = var_combination[5] #duração máxima de uma operação
+    n_bars_validation = var_combination[6] #numero de barras para validar um pullback
+    extra_range_entry = var_combination[7] #range para entrar adiantado na operação
 
     df = df_rates
 
@@ -119,9 +102,6 @@ for var_combination in combination_arr:
 
     df['local_max'] = 0
     df.loc[local_max_index, 'local_max'] = 1
-
-    #print(df['local_max'].value_counts())
-
 
     #Obtendo index do local_high anterior
     prev_high_index_array = df.iloc[df.local_max.values == 1].index.values
@@ -134,11 +114,7 @@ for var_combination in combination_arr:
       prev_high_index_array, 0
       )
 
-    #df.iloc[local_max_index]
-
-
     #filtrando limite máximo de pesquisa
-
     total_min_threshold = trade_hour_threshold*60 + trade_minute_threshold
 
     daily_min = df.iloc[local_max_index].time.values.astype('datetime64[m]') - df.iloc[local_max_index].time.dt.normalize().values.astype('datetime64[m]')
@@ -149,7 +125,6 @@ for var_combination in combination_arr:
       df.loc[df.local_max.values == 1].local_max.values,
       search_index_array, 0
       )
-
 
     #Habilitando apenas calculo de canais diários
     search_index_array = search_index_array.astype('int32')
@@ -167,7 +142,6 @@ for var_combination in combination_arr:
       isNewDay_array, False
       )
 
-
     #filtrando candidatos a calculos
     conditions = [
       (df.iloc[local_max_index].local_max == 1) &
@@ -178,14 +152,12 @@ for var_combination in combination_arr:
     filtered_index_array = np.select(conditions, [df.iloc[local_max_index].index], default = 0)
     filtered_index_array = filtered_index_array[filtered_index_array != 0]
 
-
     #criando array com informações necessárias para o cálculo de breakout
     useful_calc_info = df.iloc[filtered_index_array].apply(
       lambda x: (df.iloc[x.prev_high_index].high, x.high,x.prev_high_index, x.name, x.search_index),
       axis=1)
 
     useful_calc_info = useful_calc_info.to_numpy(dtype=object)
-
 
     #calculando breakout, pullbacks e entradas
     profit = np.array([])
@@ -311,13 +283,13 @@ print("Tempo total de execução",total)
 
 file_list = ['Resultados.csv', 'Variaveis.csv']
 for file in file_list:
-    if(os.path.exists(file) and os.path.isfile(file)):
-        os.remove(file)
+  if(os.path.exists(file) and os.path.isfile(file)):
+    os.remove(file)
 
 df_results.to_csv('Resultados.csv')
 df_variables.to_csv('Variaveis.csv')
 
-#printando as 5 melhores combinações
+#printando as 5 melhores e piores combinações
 best_variable_index_arr = df_results.sort_values('Saldo Líquido', ascending=False).index
 worst_variable_index_arr = df_results.sort_values('Saldo Líquido').head(5).index
 
@@ -331,4 +303,3 @@ print(
     #"\nConfiguração dos 5 melhores resultados:\n",
     #df_variables.iloc[worst_variable_index_arr[0:5]]
 )
-

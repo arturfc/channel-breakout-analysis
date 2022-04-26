@@ -1,3 +1,3 @@
 # channel_breakout_analysis
 
-Future description here...
+Este projeto apresenta um estudo de análise quantitativa que verifica a quebra de canais de tendências de baixas

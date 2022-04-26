@@ -1,4 +1,3 @@
-#%%
 import MetaTrader5 as mt5
 import pandas as pd
 import time
@@ -8,21 +7,39 @@ import numpy as np
 import seaborn as sns
 import pyarrow.parquet as pq
 from datetime import datetime
+import time
 from scipy.signal import argrelextrema
 from plotly.subplots import make_subplots
 import ta
 
-df = pq.ParquetFile("output.parquet").read().to_pandas()
+t0 = time.time()
+
+#Variáveis de configuração
+#dados do ativo
+value_per_pip = 10 #valor em R$ por variação de 1 ponto
+order_tax = 1.33 #custo em R$ por ordem enviada
+
+#dentro da operação
+trade_volume = 1 #número de lotes/contratos
+stop_gain_distance = 14 #distância do stop gain
+stop_loss_distance = 6 #distância do stop loss
+operation_time = 30 #duração máxima de uma operação
+
+#validação do pullback
+n_bars_validation = 10 #numero de barras para validar um pullback
+extra_range_entry = 0 #range para entrar adiantado na operação
+
+order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
+trade_hour_threshold = 17 #horário limite de trade 
+trade_minute_treshold = 0 #minuto limite de trade
+#
+
+df = pq.ParquetFile("WDO_dados.parquet").read().to_pandas()
 df.set_index('time', inplace=True)
 df.index = pd.to_datetime(df.index, format="%Y-%m-%d %H:%M:%S")
 
-#adicionando média móvel simples de 200 períodos ou RSI
-#df['SMA_200'] = df.close.rolling(200).mean()
 df['rsi'] = ta.momentum.rsi(df.close, 7)
 
-#Note que o mercado passa por duas grandes fases de tendência
-df[["close"]].plot()
-# %%
 #Armazenando high locais
 df["i"] = np.arange(len(df))
 
@@ -38,7 +55,6 @@ local_max
 df["local_max"] = 0
 df.loc[df["i"].isin(local_max_index), "local_max"] = 1
 
-# %%
 def round_limit_order_price(limitOrderPrice):
   decimal_value = limitOrderPrice % 1
 
@@ -51,28 +67,6 @@ def round_limit_order_price(limitOrderPrice):
 
   return limitOrderPrice
 
-#Variáveis de configuração
-
-#dados do ativo
-value_per_pip = 10  #valor em R$ por variação de 1 ponto
-order_tax = 1.33       #custo em R$ por ordem enviada
-
-#dentro da operação
-trade_volume = 1          #número de lotes/contratos
-stop_gain_distance = 14    #distância do stop gain
-stop_loss_distance = 6    #distância do stop loss
-operation_time = 30       #duração máxima de uma operação
-
-#validação do pullback
-n_bars_validation = 10  #numero de barras para validar um pullback
-extra_range_entry = 0   #range para entrar adiantado na operação
-operation_duration = 15 #deprecated
-
-order_to_be_filled_threshold = 30 #tempo de limite para consumir a ordem existente
-
-trade_hour_threshold = 17   #horário limite de trade 
-trade_minute_treshold = 0  #minuto limite de trade
-#
 
 df["local_entry"] = 0
 df["entry_value"] = 0
@@ -84,7 +78,6 @@ ignored_limit_orders = 0
 profit = []
 
 for i in range(1,len(local_max_index)):
-
   #Permitindo apenas canais diários
   if (df[local_max_index[i-1]:(local_max_index[i-1]+1)].index.day[0] != df[local_max_index[i]:(local_max_index[i]+1)].index.day[0]):
     continue
@@ -182,13 +175,9 @@ profit['negative_trades'] = np.where(profit.profit_per_trade <= 0, profit.profit
 payoff = round(abs(profit['positive_trades'].mean()/profit['negative_trades'].mean()),2)
 winrate = len(profit[profit.positive_trades > 0])/len(profit)
 
-#%%
-#Exibindo evolução do patrimonio sobre o acumulado de operações
-profit["cum_sum"].plot()
-#%%
 #Informações adicionais
 
-print("Período:", df[0:1].index[-1].strftime('%Y-%m-%d %X'), "-", df[(len(df)-1):len(df)].index[0].strftime('%Y-%m-%d %X'),
+'''print("Período:", df[0:1].index[-1].strftime('%Y-%m-%d %X'), "-", df[(len(df)-1):len(df)].index[0].strftime('%Y-%m-%d %X'),
       "\nSaldo líquido:", round(profit.cum_sum.iloc[-1],2), "reais",
       "\nNúmero de entradas:", len(profit),
       "\nTaxa de acerto:", round(winrate,2),
@@ -197,25 +186,8 @@ print("Período:", df[0:1].index[-1].strftime('%Y-%m-%d %X'), "-", df[(len(df)-1
       "\nDesvio padrão:", round(profit.profit_per_trade.std(),2),
       "\nNúmero de pullbacks ignorados:", ignored_pullbacks,
       "\nNúmero de ordens limite ignorados:", ignored_limit_orders,
-      sns.histplot(profit.profit_per_trade, bins=15))
+      sns.histplot(profit.profit_per_trade, bins=15))'''
 
-# %%
-#Plotando um exemplo da amostra: exibindo max locais, entradas e saídas
-dateBegin =  datetime(2022,4,12,13,40)
-dateEnd = datetime(2022,4,12,16,0)
-
-df2 = df[(df.index >= dateBegin) & (df.index <= dateEnd)].copy()
-
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
-                    vertical_spacing=0.03, subplot_titles=('OHLC - 1 min timeframe', 'Volume'), row_width=[0.2, 0.7])
-                    
-fig.add_trace(go.Candlestick(x=df2.index, open=df2['open'], high=df2['high'], low=df2['low'], close=df2['close'], name="Candle"), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["local_max"] == 1].index, y=df2[df2["local_max"] == 1]["high"], name="Topo Local", mode="markers", marker_color="cyan", marker_symbol="x", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["local_entry"] == 1].index, y=df2[df2["local_entry"] == 1]["entry_value"], name="Compra", mode="markers", marker_color="green", marker_symbol="circle", marker_size=15, opacity=0.5), row=1, col=1)
-fig.add_trace(go.Scatter(x=df2[df2["exit"] == 1].index, y=df2[df2["exit"] == 1]["exit_value"], name="Venda", mode="markers", marker_color="red", marker_symbol="square", marker_size=15, opacity=0.5), row=1, col=1)
-
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=700)
-fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(bounds=[18, 9], pattern="hour")])
-
-fig.show()
-# %%
+t1 = time.time()
+total = t1-t0
+print("Tempo total de execução",total)
