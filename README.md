@@ -44,6 +44,14 @@ Tempo de execução:
 - Artur Fernandes e Cunha <arturfernandescunha@gmail.com>
 
 ---
+
+# License & copyright
+
+© Artur Fernandes e Cunha
+
+Licensed under the [MIT License] (LICENSE).
+
+---
 Exemplo da imagem do título em plot, contendo as amostras específicas:
 <div align="center">
 <img src="https://user-images.githubusercontent.com/20324343/165372170-63cc7eb7-79c0-4520-82b6-7f7d68993bcd.png" width="1000px" />
