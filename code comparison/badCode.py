@@ -1,4 +1,3 @@
-import MetaTrader5 as mt5
 import pandas as pd
 import time
 import plotly.graph_objects as go
