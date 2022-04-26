@@ -7,5 +7,5 @@ O propósito aqui é exibir apenas printar o tempo de execução dos códigos ex
 
 
 Tempo de execução:
-- goodCode.py: 1.8712852001190186 segundos
-- badCode.py: 18.624610424041748 segundos
+- goodCode.py: 1.871 segundos
+- badCode.py: 18.625 segundos

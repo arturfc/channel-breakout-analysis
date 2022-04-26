@@ -22,7 +22,7 @@ Para que o canal de tendência seja inicialmente aprovado para os cálculos, ele
 # Arquivos do projeto
 
 - WDO_dados.parquet possui as informações da série histórica do mini dolar, coletadas a partir do MetaTrader 5
-- [backtest.py](backtest.py) irá aproximadamente 3000 diferentes conbinações de inputs para procurar as melhores e piores configurações para a estratégia
+- [backtest.py](backtest.py) irá aproximadamente 3000 diferentes conbinações de inputs para procurar as melhores e piores configurações para a estratégia (tempo de execução aproximado de 1.871 segundos por combinação)
 - Os arquivos .csv correspondem ao output gerado pelo backtest, provendo as informações coletadas como os próprios nomes do arquivo sugerem
 - [main.py](main.py) contém o passo a passo, de forma a guiar o leitor, a entender como foi construído a lógica do código
 - [main.ipynb](main.ipynb) representa o mesmo código que main.py, porém de forma mais interativa, a fim de ilustrar as saídas/imagens geradas
