@@ -4,7 +4,7 @@
 <img src="https://user-images.githubusercontent.com/20324343/165372057-8e91e766-0ca4-4e07-bb92-3b79e8ed725d.png" width="700px" />
 </div>
 
-Este projeto apresenta um estudo de análise quantitativa que verifica a quebra (breakout) da linha de resistência de canais de alta ou de baixa. Caso haja um breakout, o programa irá calcular a existência de um pullback e validar a simulação de uma ordem limite, que atualiza a cada surgimento de uma nova barra (candle), até a ordem seja ativada ou o tempo de espera expire. O objetivo principal é produzir backtests massivos para descobrir quais configurações de inputs possuem os melhores resultados para **saldo líquido**, **taxa de acerto**, **payoff**, **média de lucro por operação** e **desvio padrão**, tudo com o menor número de entradas possível.
+Este projeto apresenta um estudo de análise quantitativa que verifica a quebra (breakout) da linha de **resistência** de canais de **alta** ou de **baixa**. Caso haja um breakout, o programa irá calcular a existência de um pullback (retorno do preço à resistência do canal) e validar a simulação de uma ordem limite, que atualiza a cada surgimento de uma nova barra (candle), até esta ordem seja ativada ou o tempo de espera expire. O objetivo principal é produzir backtests massivos para descobrir quais configurações de inputs possuem os melhores resultados para **saldo líquido**, **taxa de acerto**, **payoff**, **média de lucro por operação** e **desvio padrão**, tudo com o menor número de entradas possível.
 
 O estudo foi realizado utilizando dados históricos do mini dolar - WDO@N em timeframe de 1 minuto, dentro do período de 2021-07-26 16:51:00 até 2022-04-18 17:59:00 . O código, de forma geral, visa executar as seguintes tarefas:
 
@@ -12,7 +12,7 @@ O estudo foi realizado utilizando dados históricos do mini dolar - WDO@N em tim
 - Busca do momento em que o preço quebra a linha de resistência de um canal;
 - Validação de um possível pullback posterior do breakout;
 - Simulação de envio de ordem que dura por n minutos ou até a sua ativação;
-- Sáida da operação de acordo com os inputs a serem configurados.
+- Saída da operação de acordo com os inputs a serem configurados.
 
 Para que o canal de tendência seja inicialmente aprovado para os cálculos, ele precisa passar pelas seguintes condições:
 
